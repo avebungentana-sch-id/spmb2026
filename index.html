@@ -205,7 +205,7 @@
                             <h4 class="text-teal-700 font-semibold text-sm md:text-base mb-4 mt-6 bg-teal-50 p-2 rounded border-l-4 border-teal-500">C. Kontak</h4>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 mb-6">
                                 <div><label class="block text-sm font-medium text-gray-700 mb-1">No HP/WA</label><input type="tel" id="no_hp" required class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none text-base md:text-sm"></div>
-                                <div><label class="block text-sm font-medium text-gray-700 mb-1">Email</label><input type="email" id="email" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none text-base md:text-sm"></div>
+                                <div><label class="block text-sm font-medium text-gray-700 mb-1">Email</label><input type="text" id="email" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none text-base md:text-sm" placeholder="(Opsional) Isi (-) jika tidak ada"></div>
                                 <div class="md:col-span-2"><label class="block text-sm font-medium text-gray-700 mb-1">Alamat Rumah</label><textarea id="alamat" rows="3" required class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none text-base md:text-sm"></textarea></div>
                             </div>
                             
@@ -1071,50 +1071,170 @@
         window.showLoading = function(s) { document.getElementById('loading-overlay').classList.toggle('hidden', !s); }
 
         window.generatePDF = function(data) {
-            const { jsPDF } = window.jspdf; const doc = new jsPDF();
+            const { jsPDF } = window.jspdf; 
+            const doc = new jsPDF();
             
-            // Dynamic Header
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const pageHeight = doc.internal.pageSize.getHeight();
+            const margin = 20;
+
+            // --- Header ---
+            // Header Image or Default
             if (window.ppdbSettings.header_image) {
-                try { doc.addImage(window.ppdbSettings.header_image, 'JPEG', 0, 0, 210, 35); } catch(e){}
+                try {
+                    // Assuming header image spans width
+                    doc.addImage(window.ppdbSettings.header_image, 'JPEG', 0, 0, pageWidth, 35);
+                } catch(e) {
+                    console.error("Header image error", e);
+                }
             } else {
-                doc.setFillColor(20, 184, 166); doc.rect(0, 0, 210, 35, 'F');
-                doc.setTextColor(255); doc.setFontSize(16); 
-                doc.text(window.ppdbSettings.school_name || "SMKS AVE BUNGEN TANA", 105, 18, null, null, "center");
-                doc.setFontSize(10); 
-                doc.text("Bukti Pendaftaran Online " + (window.ppdbSettings.academic_year || "2026"), 105, 26, null, null, "center");
+                doc.setFillColor(13, 148, 136); // Teal 600
+                doc.rect(0, 0, pageWidth, 40, 'F');
+                doc.setTextColor(255, 255, 255);
+                doc.setFontSize(16);
+                doc.setFont("helvetica", "bold");
+                doc.text((window.ppdbSettings.school_name || "SMKS AVE BUNGEN TANA").toUpperCase(), pageWidth / 2, 20, { align: "center" });
+                doc.setFontSize(12);
+                doc.setFont("helvetica", "normal");
+                doc.text("TAHUN AJARAN " + (window.ppdbSettings.academic_year || "2026/2027"), pageWidth / 2, 28, { align: "center" });
+            }
+
+            // --- Title ---
+            doc.setTextColor(0, 0, 0);
+            doc.setFontSize(16);
+            doc.setFont("helvetica", "bold");
+            doc.text("KARTU BUKTI PENDAFTARAN", pageWidth / 2, 55, { align: "center" });
+            doc.setLineWidth(0.5);
+            doc.line(margin, 58, pageWidth - margin, 58);
+
+            // --- Photo ---
+            let photoX = pageWidth - margin - 40; // 40mm width
+            let photoY = 65;
+            let photoW = 40;
+            let photoH = 53.3; // 3:4 ratio
+
+            if (data.foto_diri) {
+                try {
+                    doc.addImage(data.foto_diri, 'JPEG', photoX, photoY, photoW, photoH);
+                    doc.setDrawColor(0);
+                    doc.rect(photoX, photoY, photoW, photoH); // Border
+                } catch(e) {}
+            } else {
+                // Placeholder
+                doc.setDrawColor(150);
+                doc.rect(photoX, photoY, photoW, photoH);
+                doc.setFontSize(10);
+                doc.text("FOTO", photoX + 20, photoY + 26, { align: "center" });
+            }
+
+            // --- Details ---
+            let y = 65;
+            const labelX = margin;
+            const valueX = margin + 45;
+            const lineHeight = 8;
+            
+            doc.setFontSize(11);
+            const printField = (label, value) => {
+                doc.setFont("helvetica", "bold");
+                doc.text(label, labelX, y);
+                doc.setFont("helvetica", "normal");
+                doc.text(": " + (value || "-"), valueX, y);
+                y += lineHeight;
+            };
+
+            printField("No. Pendaftaran", data.id ? data.id.substring(0, 8).toUpperCase() : "-"); // Or NISN
+            printField("Nama Lengkap", data.nama);
+            printField("NISN", data.nisn);
+            printField("Tempat, Tgl Lahir", `${data.tempat_lahir}, ${data.tanggal_lahir}`);
+            printField("Jenis Kelamin", data.jenis_kelamin);
+            printField("Agama", data.agama);
+            printField("Asal Sekolah", data.asal_sekolah);
+            printField("No. HP / WA", data.no_hp);
+            printField("Email", data.email);
+            
+            // Address
+            doc.setFont("helvetica", "bold");
+            doc.text("Alamat", labelX, y);
+            doc.setFont("helvetica", "normal");
+            doc.text(":", valueX - 3, y); 
+            const addressLines = doc.splitTextToSize(data.alamat, 80);
+            doc.text(addressLines, valueX, y);
+            y += (lineHeight * addressLines.length) + 5;
+
+            // Ensure y clears the photo
+            if (y < (photoY + photoH + 10)) y = photoY + photoH + 10;
+
+            // --- Checklist Status ---
+            doc.setFontSize(12);
+            doc.setFont("helvetica", "bold");
+            doc.setFillColor(240, 240, 240);
+            doc.rect(margin, y, pageWidth - (margin*2), 8, 'F');
+            doc.text("KELENGKAPAN BERKAS (VERIFIKASI)", margin + 2, y + 6);
+            y += 14;
+
+            doc.setFontSize(10);
+            doc.setFont("helvetica", "normal");
+            
+            const checkItem = (label, status) => {
+                const mark = status ? "[ v ]" : "[   ]";
+                return `${mark} ${label}`;
             }
             
-            doc.setTextColor(0); doc.setFontSize(12);
-            let y=50;
-            const addRow = (l,v) => { doc.text(l, 20, y); doc.text(": "+(v||'-'), 70, y); y+=8; };
-            doc.setFont("helvetica","bold"); doc.text("DATA PRIBADI",20,y); y+=10; doc.setFont("helvetica","normal");
-            addRow("Nama", data.nama); addRow("NISN", data.nisn); addRow("TTL", `${data.tempat_lahir}, ${data.tanggal_lahir}`); addRow("Agama", data.agama);
-            y+=5; doc.setFont("helvetica","bold"); doc.text("DATA SEKOLAH",20,y); y+=10; doc.setFont("helvetica","normal");
-            addRow("Asal", data.asal_sekolah); addRow("Alamat", data.alamat_sekolah);
-            y+=5; doc.setFont("helvetica","bold"); doc.text("KONTAK",20,y); y+=10; doc.setFont("helvetica","normal");
-            addRow("HP", data.no_hp); addRow("Email", data.email);
+            let col1X = margin;
+            let col2X = pageWidth / 2 + 10;
+            let startCheckY = y;
+
+            doc.text(checkItem("Ijazah / SKHU", data.checklist?.ijazah), col1X, y); y += 6;
+            doc.text(checkItem("Rapor Sem 5 & 6", data.checklist?.rapor), col1X, y); y += 6;
+            doc.text(checkItem("Kartu Keluarga", data.checklist?.kk), col1X, y); y += 6;
             
-            if(data.foto_diri) { try { doc.addImage(data.foto_diri, 'JPEG', 150, 50, 30, 40); } catch(e){} }
+            y = startCheckY;
+            doc.text(checkItem("Pas Foto 3x4", data.checklist?.foto), col2X, y); y += 6;
+            doc.text(checkItem("Surat Ket. Sehat", data.checklist?.sehat), col2X, y); y += 6;
+            doc.text(checkItem("Surat Pernyataan", data.checklist?.pernyataan), col2X, y); y += 15;
 
-            // Add QR Code
+            // --- Catatan Penting & QR ---
+            // Note Box
+            const noteHeight = 35;
+            doc.setDrawColor(0);
+            doc.setLineWidth(0.1);
+            doc.rect(margin, y, pageWidth - (margin*2), noteHeight); // Full width box
+            
+            doc.setFontSize(10);
+            doc.setFont("helvetica", "bold");
+            doc.text("CATATAN PENTING UNTUK DAFTAR ULANG:", margin + 2, y + 5);
+            
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(9);
+            let noteY = y + 10;
+            doc.text("1. Simpan lembar ini sebagai bukti pendaftaran.", margin + 2, noteY); noteY += 5;
+            doc.text("2. Wajib membawa berkas fisik asli yang tertera di atas.", margin + 2, noteY); noteY += 5;
+            doc.text("3. Tunjukkan QR Code ini kepada panitia saat verifikasi.", margin + 2, noteY); noteY += 5;
+            doc.text("4. Calon siswa wajib memakai seragam sekolah asal.", margin + 2, noteY);
+
+            // Footer Text
+            doc.setFontSize(8);
+            doc.setTextColor(100);
+            doc.text(`Dicetak otomatis oleh sistem SPMB pada: ${new Date().toLocaleString('id-ID')}`, margin, pageHeight - 10);
+
+            // QR Code (Bottom Center)
             try {
-                const qrData = `${data.nama} - ${data.nisn}`;
-                const qr = qrcode(4, 'M'); qr.addData(qrData); qr.make();
+                const qrData = `REG:${data.nisn}\nNAMA:${data.nama}\nASAL:${data.asal_sekolah}`;
+                const qr = qrcode(0, 'M'); 
+                qr.addData(qrData); 
+                qr.make();
                 const qrImg = qr.createDataURL(4);
-                // Position: Bottom Center
-                doc.addImage(qrImg, 'GIF', 85, 220, 40, 40);
-                doc.setFontSize(8); doc.text("Scan untuk verifikasi", 105, 265, null, null, "center");
-            } catch(e) {}
+                
+                let qrSize = 30;
+                let qrX = (pageWidth - qrSize) / 2;
+                let qrY = pageHeight - qrSize - 15; // Just above footer
+                
+                doc.addImage(qrImg, 'GIF', qrX, qrY, qrSize, qrSize);
+            } catch(e) {
+                console.error("PDF Gen Error", e);
+            }
 
-            y+=10;
-            doc.setDrawColor(255, 0, 0); doc.setLineWidth(0.5); doc.rect(15, y, 180, 25); y+=6;
-            doc.setFontSize(10); doc.setTextColor(200,0,0); doc.setFont("helvetica", "bold");
-            doc.text("PENTING - DAFTAR ULANG:", 20, y); y+=6;
-            doc.setFont("helvetica", "normal"); doc.setTextColor(0);
-            doc.text("Harap membawa berkas fisik sesuai checklist (Ijazah, SKHU, KK, Foto, Surat Sehat,", 20, y); y+=5;
-            doc.text("Surat Pernyataan) saat melakukan verifikasi langsung ke sekolah.", 20, y);
-
-            doc.save(`Bukti_${data.nisn}.pdf`);
+            doc.save(`Bukti_Pendaftaran_${data.nisn}.pdf`);
         }
 
         window.exportToExcel = function() {
@@ -1130,43 +1250,159 @@
             window.studentsData.forEach((s,i)=>{ if(i>0)doc.addPage(); window.drawStudentPage(doc,s); }); doc.save("Rekap_Semua.pdf");
         }
         window.drawStudentPage = function(doc, data) {
-             // Replicate generatePDF logic for mass export
-             if (window.ppdbSettings.header_image) {
-                try { doc.addImage(window.ppdbSettings.header_image, 'JPEG', 0, 0, 210, 35); } catch(e){}
-            } else {
-                doc.setFillColor(20, 184, 166); doc.rect(0, 0, 210, 35, 'F');
-                doc.setTextColor(255); doc.setFontSize(16); 
-                doc.text(window.ppdbSettings.school_name || "SMKS AVE BUNGEN TANA", 105, 18, null, null, "center");
-                doc.setTextColor(0);
-            }
-            doc.setTextColor(0); doc.setFontSize(12);
-            let y=50; 
-            const addRow = (l,v) => { doc.text(l, 20, y); doc.text(": "+(v||'-'), 70, y); y+=8; };
-            
-            doc.setFont("helvetica","bold"); doc.text("DATA PRIBADI",20,y); y+=10; doc.setFont("helvetica","normal");
-            addRow("Nama", data.nama); addRow("NISN", data.nisn); addRow("TTL", `${data.tempat_lahir}, ${data.tanggal_lahir}`); addRow("Agama", data.agama);
-            y+=5; doc.setFont("helvetica","bold"); doc.text("DATA SEKOLAH",20,y); y+=10; doc.setFont("helvetica","normal");
-            addRow("Asal", data.asal_sekolah); addRow("Alamat", data.alamat_sekolah);
-            y+=5; doc.setFont("helvetica","bold"); doc.text("KONTAK",20,y); y+=10; doc.setFont("helvetica","normal");
-            addRow("HP", data.no_hp); addRow("Email", data.email);
-            
-            if(data.foto_diri) { try { doc.addImage(data.foto_diri, 'JPEG', 150, 50, 30, 40); } catch(e){} }
-            
-            // Important Note Box
-            y+=15;
-            doc.setDrawColor(255, 0, 0); doc.setLineWidth(0.5); doc.rect(15, y, 180, 25); y+=6;
-            doc.setFontSize(10); doc.setTextColor(200,0,0); doc.setFont("helvetica", "bold");
-            doc.text("PENTING - DAFTAR ULANG:", 20, y); y+=6;
-            doc.setFont("helvetica", "normal"); doc.setTextColor(0);
-            doc.text("Harap membawa berkas fisik sesuai checklist (Ijazah, SKHU, KK, Foto, Surat Sehat,", 20, y); y+=5;
-            doc.text("Surat Pernyataan) saat melakukan verifikasi langsung ke sekolah.", 20, y);
+             const pageWidth = doc.internal.pageSize.getWidth();
+            const pageHeight = doc.internal.pageSize.getHeight();
+            const margin = 20;
 
+            // --- Header ---
+            doc.setFillColor(13, 148, 136); 
+            doc.rect(0, 0, pageWidth, 40, 'F');
+            
+            if (window.ppdbSettings.header_image) {
+                 try { doc.addImage(window.ppdbSettings.header_image, 'JPEG', 0, 0, pageWidth, 40); } catch(e){}
+            } else {
+                doc.setTextColor(255, 255, 255);
+                doc.setFontSize(18);
+                doc.setFont("helvetica", "bold");
+                doc.text((window.ppdbSettings.school_name || "SMKS AVE BUNGEN TANA").toUpperCase(), pageWidth / 2, 20, { align: "center" });
+                doc.setFontSize(12);
+                doc.setFont("helvetica", "normal");
+                doc.text("TAHUN AJARAN " + (window.ppdbSettings.academic_year || "2026/2027"), pageWidth / 2, 28, { align: "center" });
+            }
+
+            // --- Title ---
+            doc.setTextColor(0, 0, 0);
+            doc.setFontSize(16);
+            doc.setFont("helvetica", "bold");
+            doc.text("KARTU BUKTI PENDAFTARAN", pageWidth / 2, 55, { align: "center" });
+            doc.setLineWidth(0.5);
+            doc.line(margin, 58, pageWidth - margin, 58);
+
+            // --- Photo ---
+            let photoX = pageWidth - margin - 40; 
+            let photoY = 65;
+            let photoW = 40;
+            let photoH = 53.3; 
+
+            if (data.foto_diri) {
+                try {
+                    doc.addImage(data.foto_diri, 'JPEG', photoX, photoY, photoW, photoH);
+                    doc.setDrawColor(0);
+                    doc.rect(photoX, photoY, photoW, photoH); 
+                } catch(e) {}
+            } else {
+                doc.setDrawColor(150);
+                doc.rect(photoX, photoY, photoW, photoH);
+                doc.setFontSize(10);
+                doc.text("FOTO", photoX + 20, photoY + 26, { align: "center" });
+            }
+
+            // --- Details ---
+            let y = 65;
+            const labelX = margin;
+            const valueX = margin + 45;
+            const lineHeight = 8;
+            
+            doc.setFontSize(11);
+
+            const printField = (label, value) => {
+                doc.setFont("helvetica", "bold");
+                doc.text(label, labelX, y);
+                doc.setFont("helvetica", "normal");
+                doc.text(": " + (value || "-"), valueX, y);
+                y += lineHeight;
+            };
+
+            printField("No. Pendaftaran", data.id ? data.id.substring(0, 8).toUpperCase() : "-"); 
+            printField("Nama Lengkap", data.nama);
+            printField("NISN", data.nisn);
+            printField("Tempat, Tgl Lahir", `${data.tempat_lahir}, ${data.tanggal_lahir}`);
+            printField("Jenis Kelamin", data.jenis_kelamin);
+            printField("Agama", data.agama);
+            printField("Asal Sekolah", data.asal_sekolah);
+            printField("No. HP / WA", data.no_hp);
+            printField("Email", data.email);
+            
+            doc.setFont("helvetica", "bold");
+            doc.text("Alamat", labelX, y);
+            doc.setFont("helvetica", "normal");
+            doc.text(":", valueX - 3, y); 
+            const addressLines = doc.splitTextToSize(data.alamat, 80); 
+            doc.text(addressLines, valueX, y);
+            y += (lineHeight * addressLines.length) + 5;
+
+            if (y < (photoY + photoH + 10)) y = photoY + photoH + 10;
+
+            // --- Checklist Status ---
+            doc.setFontSize(12);
+            doc.setFont("helvetica", "bold");
+            doc.setFillColor(240, 240, 240);
+            doc.rect(margin, y, pageWidth - (margin*2), 8, 'F');
+            doc.text("KELENGKAPAN BERKAS (VERIFIKASI)", margin + 2, y + 6);
+            y += 14;
+
+            doc.setFontSize(10);
+            doc.setFont("helvetica", "normal");
+            
+            const checkItem = (label, status) => {
+                const mark = status ? "[ v ]" : "[   ]";
+                return `${mark} ${label}`;
+            }
+            
+            let col1X = margin;
+            let col2X = pageWidth / 2 + 10;
+            let startCheckY = y;
+
+            doc.text(checkItem("Ijazah / SKHU", data.checklist?.ijazah), col1X, y); y += 6;
+            doc.text(checkItem("Rapor Sem 5 & 6", data.checklist?.rapor), col1X, y); y += 6;
+            doc.text(checkItem("Kartu Keluarga", data.checklist?.kk), col1X, y); y += 6;
+            
+            y = startCheckY;
+            doc.text(checkItem("Pas Foto 3x4", data.checklist?.foto), col2X, y); y += 6;
+            doc.text(checkItem("Surat Ket. Sehat", data.checklist?.sehat), col2X, y); y += 6;
+            doc.text(checkItem("Surat Pernyataan", data.checklist?.pernyataan), col2X, y); y += 15;
+
+            // --- Catatan Penting & QR ---
              try {
-                const qrData = `${data.nama} - ${data.nisn}`;
-                const qr = qrcode(4, 'M'); qr.addData(qrData); qr.make();
+                const qrData = `REG:${data.nisn}\nNAMA:${data.nama}\nASAL:${data.asal_sekolah}`;
+                const qr = qrcode(0, 'M'); 
+                qr.addData(qrData); 
+                qr.make();
                 const qrImg = qr.createDataURL(4);
-                doc.addImage(qrImg, 'GIF', 85, 220, 40, 40);
-                doc.setFontSize(8); doc.text("Scan untuk verifikasi", 105, 265, null, null, "center");
+                
+                let qrSize = 35;
+                let qrX = pageWidth - margin - qrSize;
+                let qrY = y; 
+                
+                // Note Box (Left of QR) - NOT covering QR in mass export either? Wait, mass export logic same as single
+                // Actually let's replicate the single page layout completely for consistency
+                 
+                // If using same logic as generatePDF:
+                // Note Box full width
+                const noteHeight = 35;
+                doc.setDrawColor(0);
+                doc.setLineWidth(0.1);
+                doc.rect(margin, y, pageWidth - (margin*2), noteHeight); 
+                
+                doc.setFontSize(10);
+                doc.setFont("helvetica", "bold");
+                doc.text("CATATAN PENTING UNTUK DAFTAR ULANG:", margin + 2, y + 5);
+                
+                doc.setFont("helvetica", "normal");
+                doc.setFontSize(9);
+                let noteY = y + 10;
+                doc.text("1. Simpan lembar ini sebagai bukti pendaftaran.", margin + 2, noteY); noteY += 5;
+                doc.text("2. Wajib membawa berkas fisik asli yang tertera di atas.", margin + 2, noteY); noteY += 5;
+                doc.text("3. Tunjukkan QR Code ini kepada panitia saat verifikasi.", margin + 2, noteY); noteY += 5;
+                doc.text("4. Calon siswa wajib memakai seragam sekolah asal.", margin + 2, noteY);
+
+                 // QR Bottom Center
+                let qrSizeBottom = 30;
+                let qrXBottom = (pageWidth - qrSizeBottom) / 2;
+                let qrYBottom = pageHeight - qrSizeBottom - 15; 
+                
+                doc.addImage(qrImg, 'GIF', qrXBottom, qrYBottom, qrSizeBottom, qrSizeBottom);
+
             } catch(e) {}
         }
 
