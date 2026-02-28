@@ -144,7 +144,7 @@
 
                 </div>
                 <div class="md:w-1/2 bg-brand-50 p-8 hidden md:flex justify-center items-center h-full">
-                    <img src="https://images.unsplash.com/photo-1523050854058-8df90110c9f1?ixlib=rb-4.0.3&auto=format&fit=crop&w=600&q=80" alt="Students" class="rounded-xl shadow-lg object-cover h-64 w-full">
+                    <img src="https://github.com/avebungentana-sch-id/spmb2026/blob/main/Untitled%20design.jpg?raw=true" alt="Students" class="rounded-xl shadow-lg object-cover h-64 w-full">
                 </div>
             </div>
         </div>
@@ -338,7 +338,7 @@
                         <i class="fas fa-user-shield text-3xl"></i>
                     </div>
                     <h2 class="text-2xl font-bold text-gray-800">Login Admin</h2>
-                    <p class="text-sm text-gray-500">Gunakan admin / admin</p>
+                    <p class="text-sm text-gray-500">silahkan login menggunakan akun anda</p>
                 </div>
                 <form onsubmit="handleLogin(event)" class="space-y-4">
                     <div>
@@ -353,6 +353,10 @@
                         <div class="relative">
                             <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400"><i class="fas fa-lock"></i></span>
                             <input type="password" id="login-pass" required class="w-full pl-10 px-4 py-2 border rounded-md focus:ring-brand-500 focus:border-brand-500 outline-none">
+                        </div>
+                        <div class="mt-2 flex items-center">
+                            <input type="checkbox" id="show-password" class="w-4 h-4 text-brand-600 border-gray-300 rounded focus:ring-brand-500 cursor-pointer" onchange="document.getElementById('login-pass').type = this.checked ? 'text' : 'password'">
+                            <label for="show-password" class="ml-2 text-sm text-gray-600 cursor-pointer">Tampilkan Password</label>
                         </div>
                     </div>
                     <button type="submit" class="w-full py-2 bg-brand-600 text-white rounded-md hover:bg-brand-700 font-bold transition shadow mt-4">
@@ -795,7 +799,7 @@
         window.addEventListener('online', updateNetworkStatus);
         window.addEventListener('offline', updateNetworkStatus);
 
-        // ================= ACTIVITY LOGGING (AUDIT TRAIL) =================
+        // ================= ACTIVITY LOGGING (AUDIT Trail) =================
         function addLog(actionDetails) {
             const logs = DB.getLogs();
             const username = loggedInUser ? loggedInUser.username : 'Sistem / Guest';
