@@ -251,7 +251,7 @@
                         <!-- Camera / Photo Input -->
                         <div class="border-t pt-4 mt-4">
                             <label class="block text-sm font-medium text-gray-700 mb-1">Foto Diri (Gunakan Kamera / Upload)</label>
-                            <p class="text-xs text-gray-500 mb-3">Foto wajib jelas dan menghadap ke depan & menggunakan seragam SMP.</p>
+                            <p class="text-xs text-gray-500 mb-3">Foto wajib jelas dan menghadap ke depan.</p>
                             
                             <div class="flex flex-col gap-4">
                                 <div class="flex flex-wrap gap-2">
@@ -338,7 +338,7 @@
                         <i class="fas fa-user-shield text-3xl"></i>
                     </div>
                     <h2 class="text-2xl font-bold text-gray-800">Login Admin</h2>
-                    <p class="text-sm text-gray-500">silahkan login menggunakan akun anda</p>
+                    <p class="text-sm text-gray-500">Gunakan admin / admin</p>
                 </div>
                 <form onsubmit="handleLogin(event)" class="space-y-4">
                     <div>
@@ -781,14 +781,9 @@
                 statusEl.className = "hidden sm:flex items-center text-xs font-medium px-3 py-1.5 rounded-full bg-green-500 text-white shadow-sm transition-all duration-300";
                 statusEl.innerHTML = `<span class="relative flex h-2 w-2 mr-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-white"></span></span>Online`;
                 
-                // Tarik data terbaru & dorong data lokal saat internet kembali terhubung
+                // HANYA Tarik (Pull) data terbaru dari Firebase saat internet terhubung.
+                // Bug Mendorong (Sync/Push) data lokal secara otomatis TELAH DIHAPUS di sini.
                 if(typeof window.firebasePull === 'function') window.firebasePull();
-                if(typeof window.firebaseSync === 'function') {
-                    ['ppdb_students', 'ppdb_settings', 'ppdb_users', 'ppdb_logs'].forEach(key => {
-                        const data = DB.get(key);
-                        if(data) window.firebaseSync(key, data);
-                    });
-                }
             } else {
                 statusEl.className = "hidden sm:flex items-center text-xs font-medium px-3 py-1.5 rounded-full bg-red-500 text-white shadow-sm transition-all duration-300";
                 statusEl.innerHTML = `<i class="fas fa-wifi-slash mr-2 text-[10px]"></i>Offline Mode`;
@@ -1793,15 +1788,6 @@
             updateNetworkStatus();
             updateAppInfo();
             updateQuotaDisplay();
-            
-            if(DB.getStudents().length === 0) {
-                const baseFee = DB.getSettings().baseFee || 1100000;
-                DB.saveStudents([{
-                    id: 'REG-2026-000', timestamp: new Date().toISOString(), path: 'Reguler', name: 'Budi Contoh', gender: 'Laki-laki', religion: 'Islam', nisn: '0011223344', school: 'SMPN 1', schoolAddress: 'Jl. Merdeka', phone: '08123456789', address: 'Jl. Sudirman', photo: '',
-                    notes: '', admissionStatus: 'Menunggu',
-                    payments: { totalFee: baseFee, remaining: baseFee, status: 'BELUM LUNAS', history: [] }
-                }]);
-            }
         };
 
     </script>
@@ -1880,4 +1866,3 @@
     </script>
 </body>
 </html>
-
