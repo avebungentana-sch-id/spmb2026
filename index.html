@@ -1030,8 +1030,21 @@
         function generateRegID() {
             const students = DB.getStudents();
             const year = new Date().getFullYear();
-            const count = students.length + 1;
-            return `REG-${year}-${count.toString().padStart(3, '0')}`;
+            
+            if (students.length === 0) return `REG-${year}-001`;
+            
+            let maxNum = 0;
+            students.forEach(s => {
+                if (s.id && s.id.startsWith(`REG-${year}-`)) {
+                    // Ambil angka terakhir dari ID (contoh: dari REG-2026-005 ambil angka 5)
+                    let numPart = parseInt(s.id.split('-')[2]);
+                    if (!isNaN(numPart) && numPart > maxNum) {
+                        maxNum = numPart;
+                    }
+                }
+            });
+            
+            return `REG-${year}-${(maxNum + 1).toString().padStart(3, '0')}`;
         }
 
         function handleRegistration(e) {
