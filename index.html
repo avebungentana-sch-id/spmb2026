@@ -1086,8 +1086,6 @@ create policy "Izinkan akses baca tulis publik"
             const students = DB.getStudents();
             const year = new Date().getFullYear();
             
-            if (students.length === 0) return `REG-${year}-001`;
-            
             let maxNum = 0;
             students.forEach(s => {
                 if (s.id && s.id.startsWith(`REG-${year}-`)) {
@@ -1099,7 +1097,12 @@ create policy "Izinkan akses baca tulis publik"
                 }
             });
             
-            return `REG-${year}-${(maxNum + 1).toString().padStart(3, '0')}`;
+            const nextSequence = (maxNum + 1).toString().padStart(3, '0');
+            // KUNCI PERBAIKAN: Tambahkan 3 digit unik di akhir ID untuk mencegah data saling menimpa (Collision)
+            // ketika beberapa device mendaftar di waktu yang bersamaan.
+            const uniqueCode = Math.random().toString(36).substring(2, 5).toUpperCase();
+            
+            return `REG-${year}-${nextSequence}-${uniqueCode}`;
         }
 
         function handleRegistration(e) {
@@ -1960,29 +1963,8 @@ create policy "Izinkan akses baca tulis publik"
                     let cloudSettings = null;
                     let cloudUsers = null;
 
-                    // --- MIGRASI DATA LAMA (Hanya berjalan sekali jika data lama masih berwujud "Koper Besar") ---
-                    let legacyStudents = data.find(r => r.id === 'ppdb_students');
-                    if (legacyStudents && Array.isArray(legacyStudents.payload)) {
-                        console.log("[Supabase] Memecah data siswa lama ke baris terpisah...");
-                        for (let s of legacyStudents.payload) {
-                            await supabase.from('spmb_data').upsert({ id: 'student_' + s.id, payload: s });
-                            cloudStudents.push(s);
-                        }
-                        await supabase.from('spmb_data').delete().eq('id', 'ppdb_students'); // Hapus koper lamanya
-                    }
-
-                    let legacyLogs = data.find(r => r.id === 'ppdb_logs');
-                    if (legacyLogs && Array.isArray(legacyLogs.payload)) {
-                        for (let l of legacyLogs.payload) {
-                            let logId = l.id || 'log_' + new Date(l.date).getTime() + Math.random().toString(36).substr(2, 5);
-                            l.id = logId; // Tambah ID jika belum ada
-                            await supabase.from('spmb_data').upsert({ id: logId, payload: l });
-                            cloudLogs.push(l);
-                        }
-                        await supabase.from('spmb_data').delete().eq('id', 'ppdb_logs');
-                    }
-                    // --- SELESAI MIGRASI ---
-
+                    // KUNCI PERBAIKAN: MURNI 100% READ-ONLY. 
+                    // Kode migrasi/auto-push lama saat halaman dimuat telah dihancurkan total di sini.
                     // Memilah data dari ratusan baris Supabase ke masing-masing kategori
                     data.forEach(row => {
                         if (row.id.startsWith('student_')) cloudStudents.push(row.payload);
