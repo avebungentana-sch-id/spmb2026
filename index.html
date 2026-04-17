@@ -756,10 +756,8 @@ create policy "Izinkan akses baca tulis publik"
             get: (key) => JSON.parse(localStorage.getItem(key)) || null,
             set: (key, data) => {
                 localStorage.setItem(key, JSON.stringify(data));
-                // Trigger sinkronisasi ke Supabase secara background
-                if(typeof window.supabaseSync === 'function') {
-                    window.supabaseSync(key, data);
-                }
+                // Dihapus trigger otomatis supabaseSync dari sini untuk mencegah Race Condition array utuh.
+                // Logika sync sekarang dikendalikan langsung pada setiap aksi CRUD (Opsi 2).
             },
             
             // App specific
@@ -848,19 +846,24 @@ create policy "Izinkan akses baca tulis publik"
 
         // ================= ACTIVITY LOGGING (AUDIT Trail) =================
         function addLog(actionDetails) {
-            const logs = DB.getLogs();
             const username = loggedInUser ? loggedInUser.username : 'Sistem / Guest';
             
-            logs.unshift({ // Add to beginning
+            const newLog = { 
+                id: 'log_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
                 date: new Date().toISOString(),
                 user: username,
                 action: actionDetails
-            });
+            };
+
+            const logs = DB.getLogs();
+            logs.unshift(newLog); // Add to beginning
             
-            // Keep only the last 150 logs to prevent storage bloat
+            // Keep only the last 150 logs to prevent storage bloat locally
             if(logs.length > 150) logs.pop();
-            
             DB.saveLogs(logs);
+
+            // Sync Log Individu ke Backend
+            if(typeof window.supabaseAddLog === 'function') window.supabaseAddLog(newLog);
         }
 
         function renderLogs() {
@@ -1141,6 +1144,10 @@ create policy "Izinkan akses baca tulis publik"
             const students = DB.getStudents();
             students.push(newStudent);
             DB.saveStudents(students);
+            
+            // Sync Individu ke Supabase (Opsi 2)
+            if(typeof window.supabaseUpsertStudent === 'function') window.supabaseUpsertStudent(newStudent);
+
             addLog(`Pendaftaran siswa baru masuk: ${newStudent.name} (${newStudent.id}) via Jalur ${path}`);
 
             // Cleanup
@@ -1236,6 +1243,8 @@ create policy "Izinkan akses baca tulis publik"
             
             users.push({ username: u, password: p, role: r });
             DB.saveUsers(users);
+            
+            if(typeof window.supabaseUpsertGeneric === 'function') window.supabaseUpsertGeneric('ppdb_users', users);
             addLog(`Menambahkan pengguna baru: ${u} (${r})`);
             
             showToast("Pengguna ditambahkan");
@@ -1250,6 +1259,8 @@ create policy "Izinkan akses baca tulis publik"
             let users = DB.getUsers();
             users = users.filter(u => u.username !== username);
             DB.saveUsers(users);
+            
+            if(typeof window.supabaseUpsertGeneric === 'function') window.supabaseUpsertGeneric('ppdb_users', users);
             addLog(`Menghapus pengguna: ${username}`);
             renderUsers();
         }
@@ -1494,6 +1505,9 @@ create policy "Izinkan akses baca tulis publik"
             if(student) {
                 student.admissionStatus = newStatus;
                 DB.saveStudents(students);
+                
+                if(typeof window.supabaseUpsertStudent === 'function') window.supabaseUpsertStudent(student);
+
                 addLog(`Merubah status seleksi [${student.id}] ${student.name} menjadi: ${newStatus}`);
                 showToast("Status seleksi diperbarui menjadi: " + newStatus);
                 renderAdminTable(); 
@@ -1507,6 +1521,9 @@ create policy "Izinkan akses baca tulis publik"
                 students = students.filter(s => s.id !== id);
                 DB.saveStudents(students);
                 
+                // Hapus Individu dari backend Supabase
+                if(typeof window.supabaseDeleteStudent === 'function') window.supabaseDeleteStudent(id);
+
                 addLog(`Menghapus permanen data pendaftar: [${id}] ${studentName}`);
                 showToast("Data dihapus!");
                 renderAdminTable();
@@ -1547,6 +1564,10 @@ create policy "Izinkan akses baca tulis publik"
                 students[idx].notes = document.getElementById('edit-notes').value;
                 
                 DB.saveStudents(students);
+                
+                // Update individu ke backend
+                if(typeof window.supabaseUpsertStudent === 'function') window.supabaseUpsertStudent(students[idx]);
+
                 addLog(`Mengedit detail profil data pendaftar: [${id}] ${students[idx].name}`);
                 
                 closeModal('modal-edit');
@@ -1566,7 +1587,11 @@ create policy "Izinkan akses baca tulis publik"
             const docsRaw = document.getElementById('set-docs').value;
             const docs = docsRaw.split(',').map(d => d.trim()).filter(d => d !== '');
             
-            DB.saveSettings({ schoolName, academicYear, period, quota, baseFee, announcement, documents: docs });
+            const settingsData = { schoolName, academicYear, period, quota, baseFee, announcement, documents: docs };
+            DB.saveSettings(settingsData);
+            
+            if(typeof window.supabaseUpsertGeneric === 'function') window.supabaseUpsertGeneric('ppdb_settings', settingsData);
+
             addLog(`Memperbarui pengaturan sistem dasar`);
             
             updateAppInfo();
@@ -1665,6 +1690,10 @@ create policy "Izinkan akses baca tulis publik"
             }
 
             DB.saveStudents(students);
+            
+            // Sync individu ke backend
+            if(typeof window.supabaseUpsertStudent === 'function') window.supabaseUpsertStudent(student);
+
             addLog(`Mencatat pembayaran Rp${amount.toLocaleString('id-ID')} untuk pendaftar [${student.id}] ${student.name}`);
             
             showToast(`Pembayaran ke-${installmentNum} berhasil disimpan!`);
@@ -1860,7 +1889,7 @@ create policy "Izinkan akses baca tulis publik"
 
     </script>
 
-    <!-- Supabase Backend Configuration -->
+    <!-- Supabase Backend Configuration (Opsi 2 - Pemecahan Data) -->
     <script type="module">
         import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
@@ -1871,81 +1900,139 @@ create policy "Izinkan akses baca tulis publik"
         // Initialize Supabase
         const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        // Fungsi Global untuk Push Data (Dari Local ke Supabase)
-        window.supabaseSync = async function(key, data) {
-            if (!navigator.onLine) return; // Batal jika sedang offline
+        // [OPSI 2] FUNGSI KHUSUS SISWA (Satu siswa = Satu Baris di Database)
+        window.supabaseUpsertStudent = async function(student) {
+            if (!navigator.onLine) return;
             try {
-                // Upsert (Update atau Insert) data ke tabel 'spmb_data'
-                const { error } = await supabase
-                    .from('spmb_data')
-                    .upsert({ id: key, payload: data });
-                    
-                if (error) throw error;
-                console.log(`[Supabase] Data '${key}' berhasil disinkronisasi ke cloud.`);
-            } catch (error) {
-                console.error("[Supabase] Gagal sinkronisasi:", error);
-                // Jika error karena tabel belum ada
-                if (error.message && error.message.includes('Could not find the table')) {
-                    document.getElementById('modal-setup-db').classList.remove('hidden');
-                }
-            }
+                await supabase.from('spmb_data').upsert({ id: 'student_' + student.id, payload: student });
+            } catch (error) { console.error("[Supabase] Gagal menyimpan siswa:", error); }
         };
 
-        // Fungsi Global untuk Pull Data (Dari Supabase ke Local saat aplikasi dimuat)
+        window.supabaseDeleteStudent = async function(studentId) {
+            if (!navigator.onLine) return;
+            try {
+                await supabase.from('spmb_data').delete().eq('id', 'student_' + studentId);
+            } catch (error) { console.error("[Supabase] Gagal menghapus siswa:", error); }
+        };
+
+        // [OPSI 2] FUNGSI KHUSUS LOG
+        window.supabaseAddLog = async function(log) {
+            if (!navigator.onLine) return;
+            try {
+                await supabase.from('spmb_data').upsert({ id: log.id, payload: log });
+            } catch (error) { console.error("[Supabase] Gagal menyimpan log:", error); }
+        };
+
+        // FUNGSI UMUM (Untuk Pengaturan dan User Admin)
+        window.supabaseUpsertGeneric = async function(key, data) {
+            if (!navigator.onLine) return;
+            try {
+                await supabase.from('spmb_data').upsert({ id: key, payload: data });
+            } catch (error) { console.error("[Supabase] Gagal sinkronisasi umum:", error); }
+        };
+
+
+        // FUNGSI PULL UTAMA (Mengambil dan menyatukan kembali data dari baris terpisah)
         window.supabasePull = async function() {
             if (!navigator.onLine) return;
             try {
-                // Test koneksi nyata ke Supabase dengan mengambil 1 baris ID saja (Sangat ringan)
+                // Ping & Cek Tabel
                 const { error: pingError } = await supabase.from('spmb_data').select('id').limit(1);
                 
                 if (pingError) {
-                    // Jika tabel spmb_data belum dibuat oleh pengguna di dashboard Supabase
                     if (pingError.message && pingError.message.includes("Could not find the table")) {
                         document.getElementById('modal-setup-db').classList.remove('hidden');
                         if (typeof setIndicator === 'function') setIndicator('offline');
-                        return; // Berhenti menarik data karena tabel belum ada
+                        return;
                     }
                     throw pingError;
                 }
                 
-                // Jika server Supabase berhasil merespon, ubah indikator UI jadi Hijau
                 if (typeof setIndicator === 'function') setIndicator('online');
 
-                const keys = ['ppdb_students', 'ppdb_settings', 'ppdb_users', 'ppdb_logs'];
-                let isUpdated = false;
-                
-                for (let key of keys) {
-                    const { data, error } = await supabase
-                        .from('spmb_data')
-                        .select('payload')
-                        .eq('id', key)
-                        .single();
+                // Tarik SEMUA data di tabel secara bersamaan (Sangat efisien)
+                const { data, error } = await supabase.from('spmb_data').select('id, payload');
+                if (error) throw error;
 
-                    // Jika data ditemukan dan tidak ada error
-                    if (data && data.payload) {
-                        const cloudData = data.payload;
-                        const localData = localStorage.getItem(key);
-                        
-                        // Timpa lokal jika data cloud berbeda/baru
-                        if (JSON.stringify(cloudData) !== localData) {
-                            localStorage.setItem(key, JSON.stringify(cloudData));
-                            isUpdated = true;
+                if (data) {
+                    let cloudStudents = [];
+                    let cloudLogs = [];
+                    let cloudSettings = null;
+                    let cloudUsers = null;
+
+                    // --- MIGRASI DATA LAMA (Hanya berjalan sekali jika data lama masih berwujud "Koper Besar") ---
+                    let legacyStudents = data.find(r => r.id === 'ppdb_students');
+                    if (legacyStudents && Array.isArray(legacyStudents.payload)) {
+                        console.log("[Supabase] Memecah data siswa lama ke baris terpisah...");
+                        for (let s of legacyStudents.payload) {
+                            await supabase.from('spmb_data').upsert({ id: 'student_' + s.id, payload: s });
+                            cloudStudents.push(s);
                         }
+                        await supabase.from('spmb_data').delete().eq('id', 'ppdb_students'); // Hapus koper lamanya
                     }
-                }
-                
-                if (isUpdated) {
-                    console.log("[Supabase] Data terbaru ditarik dari cloud.");
-                    // Refresh UI agar data baru langsung muncul
-                    if(typeof updateAppInfo === 'function') updateAppInfo();
-                    if(typeof updateQuotaDisplay === 'function') updateQuotaDisplay();
-                    if(typeof renderAdminTable === 'function' && document.getElementById('page-admin').classList.contains('active')) {
-                        renderAdminTable();
+
+                    let legacyLogs = data.find(r => r.id === 'ppdb_logs');
+                    if (legacyLogs && Array.isArray(legacyLogs.payload)) {
+                        for (let l of legacyLogs.payload) {
+                            let logId = l.id || 'log_' + new Date(l.date).getTime() + Math.random().toString(36).substr(2, 5);
+                            l.id = logId; // Tambah ID jika belum ada
+                            await supabase.from('spmb_data').upsert({ id: logId, payload: l });
+                            cloudLogs.push(l);
+                        }
+                        await supabase.from('spmb_data').delete().eq('id', 'ppdb_logs');
+                    }
+                    // --- SELESAI MIGRASI ---
+
+                    // Memilah data dari ratusan baris Supabase ke masing-masing kategori
+                    data.forEach(row => {
+                        if (row.id.startsWith('student_')) cloudStudents.push(row.payload);
+                        else if (row.id.startsWith('log_')) cloudLogs.push(row.payload);
+                        else if (row.id === 'ppdb_settings') cloudSettings = row.payload;
+                        else if (row.id === 'ppdb_users') cloudUsers = row.payload;
+                    });
+
+                    // Urutkan Log berdasarkan tanggal terbaru
+                    cloudLogs.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+                    let isUpdated = false;
+
+                    // Bandingkan & Timpa ke Local Storage
+                    const localStudents = localStorage.getItem('ppdb_students') || "[]";
+                    if (JSON.stringify(cloudStudents) !== localStudents) {
+                        localStorage.setItem('ppdb_students', JSON.stringify(cloudStudents));
+                        isUpdated = true;
+                    }
+
+                    if (cloudSettings && JSON.stringify(cloudSettings) !== localStorage.getItem('ppdb_settings')) {
+                        localStorage.setItem('ppdb_settings', JSON.stringify(cloudSettings));
+                        isUpdated = true;
+                    }
+                    
+                    if (cloudUsers && JSON.stringify(cloudUsers) !== localStorage.getItem('ppdb_users')) {
+                        localStorage.setItem('ppdb_users', JSON.stringify(cloudUsers));
+                        isUpdated = true;
+                    }
+
+                    if (cloudLogs.length > 0 && JSON.stringify(cloudLogs.slice(0, 150)) !== localStorage.getItem('ppdb_logs')) {
+                        localStorage.setItem('ppdb_logs', JSON.stringify(cloudLogs.slice(0, 150)));
+                        isUpdated = true;
+                    }
+
+                    // Jika ada data yang berubah, Refresh UI di layar seketika
+                    if (isUpdated) {
+                        console.log("[Supabase] Data terbaru ditarik dan disatukan dari cloud.");
+                        if(typeof updateAppInfo === 'function') updateAppInfo();
+                        if(typeof updateQuotaDisplay === 'function') updateQuotaDisplay();
+                        if(typeof renderAdminTable === 'function' && document.getElementById('page-admin').classList.contains('active')) {
+                            renderAdminTable();
+                        }
+                        if(typeof renderLogs === 'function' && document.getElementById('admin-sec-logs') && !document.getElementById('admin-sec-logs').classList.contains('hidden')) {
+                            renderLogs();
+                        }
                     }
                 }
             } catch (error) {
                 console.error("[Supabase] Gagal menarik data atau koneksi terputus:", error.message);
-                // Jika koneksi server gagal, kembalikan indikator UI ke warna merah
                 if (typeof setIndicator === 'function') setIndicator('offline');
             }
         };
