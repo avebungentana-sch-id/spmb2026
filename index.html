@@ -72,6 +72,10 @@
                     <button id="nav-login-btn" onclick="navigate('login')" class="hover:bg-brand-600 px-3 py-2 rounded-md text-sm font-medium transition">
                         <i class="fas fa-lock mr-1"></i> Admin
                     </button>
+                    <!-- Tombol Cepat ke Dashboard (Hanya tampil saat login) -->
+                    <button id="nav-dashboard-btn" onclick="navigate('admin')" class="hidden bg-brand-800 hover:bg-brand-900 px-3 py-2 rounded-md text-sm font-medium transition border border-brand-600 shadow-sm">
+                        <i class="fas fa-columns mr-1"></i> Dashboard
+                    </button>
                     <button id="nav-logout-btn" onclick="logout()" class="hidden hover:bg-red-600 bg-red-500 px-3 py-2 rounded-md text-sm font-medium transition">
                         <i class="fas fa-sign-out-alt mr-1"></i> Keluar
                     </button>
@@ -711,6 +715,38 @@
         </div>
     </div>
 
+    <!-- Modal: Setup Database Supabase -->
+    <div id="modal-setup-db" class="fixed inset-0 bg-black bg-opacity-75 z-[70] hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col">
+            <div class="px-6 py-4 border-b bg-red-50 flex justify-between items-center">
+                <h3 class="font-bold text-lg text-red-800"><i class="fas fa-exclamation-triangle mr-2"></i>Tabel Database Belum Ditemukan!</h3>
+            </div>
+            <div class="p-6 overflow-y-auto">
+                <p class="text-gray-700 mb-4">Sistem mendeteksi bahwa tabel <code class="bg-gray-100 px-1 rounded text-red-600 font-bold">spmb_data</code> belum ada di Supabase Anda. Anda wajib menjalakan kode SQL di bawah ini pada menu <strong>SQL Editor</strong> di dashboard Supabase Anda agar aplikasi bisa menyimpan data secara online.</p>
+                <div class="relative">
+                    <textarea id="sql-code" readonly class="w-full h-48 p-4 bg-gray-900 text-green-400 font-mono text-sm rounded-lg outline-none resize-none">
+create table public.spmb_data (
+  id text primary key,
+  payload jsonb
+);
+
+alter table public.spmb_data enable row level security;
+
+create policy "Izinkan akses baca tulis publik" 
+  on public.spmb_data 
+  for all 
+  using (true) 
+  with check (true);
+                    </textarea>
+                    <button onclick="copySQL()" class="absolute top-2 right-2 bg-gray-700 hover:bg-gray-600 text-white px-3 py-1 rounded text-xs font-bold transition"><i class="fas fa-copy mr-1"></i>Copy SQL</button>
+                </div>
+            </div>
+            <div class="px-6 py-4 border-t bg-gray-50 flex justify-end gap-2">
+                <button onclick="window.location.reload()" class="px-6 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded font-bold shadow transition">Saya Sudah Menjalankannya (Refresh)</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts -->
     <script>
         /**
@@ -720,9 +756,9 @@
             get: (key) => JSON.parse(localStorage.getItem(key)) || null,
             set: (key, data) => {
                 localStorage.setItem(key, JSON.stringify(data));
-                // Trigger sinkronisasi ke Firebase secara background
-                if(typeof window.firebaseSync === 'function') {
-                    window.firebaseSync(key, data);
+                // Trigger sinkronisasi ke Supabase secara background
+                if(typeof window.supabaseSync === 'function') {
+                    window.supabaseSync(key, data);
                 }
             },
             
@@ -772,21 +808,37 @@
             setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
         }
 
-        // ================= NETWORK & FIREBASE STATUS =================
-        function updateNetworkStatus() {
+        function copySQL() {
+            const sqlText = document.getElementById('sql-code');
+            sqlText.select();
+            sqlText.setSelectionRange(0, 99999); // Untuk perangkat mobile
+            document.execCommand("copy");
+            showToast("Kode SQL berhasil disalin!");
+        }
+
+        // ================= NETWORK & SUPABASE STATUS =================
+        function setIndicator(status) {
             const statusEl = document.getElementById('network-status');
             if(!statusEl) return;
-            
-            if (navigator.onLine) {
+            if (status === 'online') {
                 statusEl.className = "hidden sm:flex items-center text-xs font-medium px-3 py-1.5 rounded-full bg-green-500 text-white shadow-sm transition-all duration-300";
-                statusEl.innerHTML = `<span class="relative flex h-2 w-2 mr-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-white"></span></span>Online`;
-                
-                // HANYA Tarik (Pull) data terbaru dari Firebase saat internet terhubung.
-                // Bug Mendorong (Sync/Push) data lokal secara otomatis TELAH DIHAPUS di sini.
-                if(typeof window.firebasePull === 'function') window.firebasePull();
+                statusEl.innerHTML = `<span class="relative flex h-2 w-2 mr-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-white"></span></span>Terhubung`;
+            } else if (status === 'connecting') {
+                statusEl.className = "hidden sm:flex items-center text-xs font-medium px-3 py-1.5 rounded-full bg-yellow-500 text-white shadow-sm transition-all duration-300";
+                statusEl.innerHTML = `<i class="fas fa-spinner fa-spin mr-2 text-[10px]"></i>Menghubungkan...`;
             } else {
                 statusEl.className = "hidden sm:flex items-center text-xs font-medium px-3 py-1.5 rounded-full bg-red-500 text-white shadow-sm transition-all duration-300";
-                statusEl.innerHTML = `<i class="fas fa-wifi-slash mr-2 text-[10px]"></i>Offline Mode`;
+                statusEl.innerHTML = `<i class="fas fa-wifi-slash mr-2 text-[10px]"></i>Offline`;
+            }
+        }
+
+        function updateNetworkStatus() {
+            if (navigator.onLine) {
+                setIndicator('connecting');
+                // HANYA Tarik (Pull) data terbaru dari Supabase saat internet terhubung.
+                if(typeof window.supabasePull === 'function') window.supabasePull();
+            } else {
+                setIndicator('offline');
                 showToast("Koneksi terputus. Data akan disimpan di perangkat (Local Storage).", "error");
             }
         }
@@ -1121,6 +1173,7 @@
                 sessionStorage.setItem('ppdb_user', JSON.stringify(loggedInUser));
                 
                 document.getElementById('nav-login-btn').classList.add('hidden');
+                document.getElementById('nav-dashboard-btn').classList.remove('hidden');
                 document.getElementById('nav-logout-btn').classList.remove('hidden');
                 
                 addLog(`Login ke sistem sebagai ${validUser.role}`);
@@ -1138,12 +1191,14 @@
             loggedInUser = null;
             sessionStorage.removeItem('ppdb_user');
             document.getElementById('nav-login-btn').classList.remove('hidden');
+            document.getElementById('nav-dashboard-btn').classList.add('hidden');
             document.getElementById('nav-logout-btn').classList.add('hidden');
             navigate('welcome');
         }
 
         if(isAdminLoggedIn) {
             document.getElementById('nav-login-btn').classList.add('hidden');
+            document.getElementById('nav-dashboard-btn').classList.remove('hidden');
             document.getElementById('nav-logout-btn').classList.remove('hidden');
         }
 
@@ -1805,51 +1860,70 @@
 
     </script>
 
-    <!-- Firebase Backend Configuration -->
+    <!-- Supabase Backend Configuration -->
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
-        import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-analytics.js";
-        // Tambahkan Firestore SDK
-        import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+        import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyA0VRq2q3vobPGJdJ-iu0ZqhUxAjZ_lJVw",
-            authDomain: "spmb2026-app.firebaseapp.com",
-            projectId: "spmb2026-app",
-            storageBucket: "spmb2026-app.firebasestorage.app",
-            messagingSenderId: "131394467961",
-            appId: "1:131394467961:web:5faa99dbaf1bc0daaafca8",
-            measurementId: "G-XWCMWQSVN6"
-        };
+        // URL dan Anon Key dari project Supabase Anda
+        const SUPABASE_URL = "https://tahgiobogierzacecuet.supabase.co";
+        const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRhaGdpb2JvZ2llcnphY2VjdWV0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0MzY4OTgsImV4cCI6MjA5MjAxMjg5OH0.FimGjPMk8ajAA9sRvAzLHMt5Qa9xtBI_b9yWigKzayw";
 
-        // Initialize Firebase
-        const app = initializeApp(firebaseConfig);
-        const analytics = getAnalytics(app);
-        const db = getFirestore(app);
+        // Initialize Supabase
+        const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        // Fungsi Global untuk Push Data (Dari Local ke Firebase)
-        window.firebaseSync = async function(key, data) {
+        // Fungsi Global untuk Push Data (Dari Local ke Supabase)
+        window.supabaseSync = async function(key, data) {
             if (!navigator.onLine) return; // Batal jika sedang offline
             try {
-                // Simpan data dalam satu dokumen sesuai 'key' (misal: dokumen 'ppdb_students')
-                await setDoc(doc(db, "spmb_data", key), { payload: data });
-                console.log(`[Firebase] Data '${key}' berhasil disinkronisasi ke cloud.`);
+                // Upsert (Update atau Insert) data ke tabel 'spmb_data'
+                const { error } = await supabase
+                    .from('spmb_data')
+                    .upsert({ id: key, payload: data });
+                    
+                if (error) throw error;
+                console.log(`[Supabase] Data '${key}' berhasil disinkronisasi ke cloud.`);
             } catch (error) {
-                console.error("[Firebase] Gagal sinkronisasi:", error);
+                console.error("[Supabase] Gagal sinkronisasi:", error);
+                // Jika error karena tabel belum ada
+                if (error.message && error.message.includes('Could not find the table')) {
+                    document.getElementById('modal-setup-db').classList.remove('hidden');
+                }
             }
         };
 
-        // Fungsi Global untuk Pull Data (Dari Firebase ke Local saat aplikasi dimuat)
-        window.firebasePull = async function() {
+        // Fungsi Global untuk Pull Data (Dari Supabase ke Local saat aplikasi dimuat)
+        window.supabasePull = async function() {
             if (!navigator.onLine) return;
             try {
+                // Test koneksi nyata ke Supabase dengan mengambil 1 baris ID saja (Sangat ringan)
+                const { error: pingError } = await supabase.from('spmb_data').select('id').limit(1);
+                
+                if (pingError) {
+                    // Jika tabel spmb_data belum dibuat oleh pengguna di dashboard Supabase
+                    if (pingError.message && pingError.message.includes("Could not find the table")) {
+                        document.getElementById('modal-setup-db').classList.remove('hidden');
+                        if (typeof setIndicator === 'function') setIndicator('offline');
+                        return; // Berhenti menarik data karena tabel belum ada
+                    }
+                    throw pingError;
+                }
+                
+                // Jika server Supabase berhasil merespon, ubah indikator UI jadi Hijau
+                if (typeof setIndicator === 'function') setIndicator('online');
+
                 const keys = ['ppdb_students', 'ppdb_settings', 'ppdb_users', 'ppdb_logs'];
                 let isUpdated = false;
                 
                 for (let key of keys) {
-                    const snap = await getDoc(doc(db, "spmb_data", key));
-                    if (snap.exists()) {
-                        const cloudData = snap.data().payload;
+                    const { data, error } = await supabase
+                        .from('spmb_data')
+                        .select('payload')
+                        .eq('id', key)
+                        .single();
+
+                    // Jika data ditemukan dan tidak ada error
+                    if (data && data.payload) {
+                        const cloudData = data.payload;
                         const localData = localStorage.getItem(key);
                         
                         // Timpa lokal jika data cloud berbeda/baru
@@ -1861,7 +1935,7 @@
                 }
                 
                 if (isUpdated) {
-                    console.log("[Firebase] Data terbaru ditarik dari cloud.");
+                    console.log("[Supabase] Data terbaru ditarik dari cloud.");
                     // Refresh UI agar data baru langsung muncul
                     if(typeof updateAppInfo === 'function') updateAppInfo();
                     if(typeof updateQuotaDisplay === 'function') updateQuotaDisplay();
@@ -1870,12 +1944,14 @@
                     }
                 }
             } catch (error) {
-                console.error("[Firebase] Gagal menarik data:", error);
+                console.error("[Supabase] Gagal menarik data atau koneksi terputus:", error.message);
+                // Jika koneksi server gagal, kembalikan indikator UI ke warna merah
+                if (typeof setIndicator === 'function') setIndicator('offline');
             }
         };
 
         // Tarik data pertama kali saat halaman dimuat
-        setTimeout(() => { window.firebasePull(); }, 1000); 
+        setTimeout(() => { window.supabasePull(); }, 1000); 
     </script>
 </body>
 </html>
