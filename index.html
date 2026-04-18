@@ -722,21 +722,27 @@
                 <h3 class="font-bold text-lg text-red-800"><i class="fas fa-exclamation-triangle mr-2"></i>Tabel Database Belum Ditemukan!</h3>
             </div>
             <div class="p-6 overflow-y-auto">
-                <p class="text-gray-700 mb-4">Sistem mendeteksi bahwa tabel <code class="bg-gray-100 px-1 rounded text-red-600 font-bold">spmb_data</code> belum ada di Supabase Anda. Anda wajib menjalakan kode SQL di bawah ini pada menu <strong>SQL Editor</strong> di dashboard Supabase Anda agar aplikasi bisa menyimpan data secara online.</p>
+                <p class="text-gray-700 mb-4">Sistem mendeteksi bahwa tabel <code class="bg-gray-100 px-1 rounded text-red-600 font-bold">ppdb_settings</code> belum ada di Supabase Anda. Anda wajib menjalakan kode SQL di bawah ini pada menu <strong>SQL Editor</strong> di dashboard Supabase Anda agar aplikasi bisa menyimpan data secara online.</p>
                 <div class="relative">
                     <textarea id="sql-code" readonly class="w-full h-48 p-4 bg-gray-900 text-green-400 font-mono text-sm rounded-lg outline-none resize-none">
-create table public.spmb_data (
-  id text primary key,
-  payload jsonb
-);
+-- Buat Tabel Siswa
+create table public.ppdb_students (id text primary key, payload jsonb);
+alter table public.ppdb_students enable row level security;
+create policy "Bebas Akses" on public.ppdb_students for all using (true) with check (true);
 
-alter table public.spmb_data enable row level security;
+-- Buat Tabel Pengaturan
+create table public.ppdb_settings (id text primary key, payload jsonb);
+alter table public.ppdb_settings enable row level security;
+create policy "Bebas Akses" on public.ppdb_settings for all using (true) with check (true);
 
-create policy "Izinkan akses baca tulis publik" 
-  on public.spmb_data 
-  for all 
-  using (true) 
-  with check (true);
+-- Buat Tabel Pengguna & Log
+create table public.ppdb_users (id text primary key, payload jsonb);
+alter table public.ppdb_users enable row level security;
+create policy "Bebas Akses" on public.ppdb_users for all using (true) with check (true);
+
+create table public.ppdb_logs (id text primary key, payload jsonb, created_at timestamp with time zone default now());
+alter table public.ppdb_logs enable row level security;
+create policy "Bebas Akses" on public.ppdb_logs for all using (true) with check (true);
                     </textarea>
                     <button onclick="copySQL()" class="absolute top-2 right-2 bg-gray-700 hover:bg-gray-600 text-white px-3 py-1 rounded text-xs font-bold transition"><i class="fas fa-copy mr-1"></i>Copy SQL</button>
                 </div>
@@ -1247,7 +1253,7 @@ create policy "Izinkan akses baca tulis publik"
             users.push({ username: u, password: p, role: r });
             DB.saveUsers(users);
             
-            if(typeof window.supabaseUpsertGeneric === 'function') window.supabaseUpsertGeneric('ppdb_users', users);
+            if(typeof window.supabaseUpsertUsers === 'function') window.supabaseUpsertUsers(users);
             addLog(`Menambahkan pengguna baru: ${u} (${r})`);
             
             showToast("Pengguna ditambahkan");
@@ -1263,7 +1269,7 @@ create policy "Izinkan akses baca tulis publik"
             users = users.filter(u => u.username !== username);
             DB.saveUsers(users);
             
-            if(typeof window.supabaseUpsertGeneric === 'function') window.supabaseUpsertGeneric('ppdb_users', users);
+            if(typeof window.supabaseUpsertUsers === 'function') window.supabaseUpsertUsers(users);
             addLog(`Menghapus pengguna: ${username}`);
             renderUsers();
         }
@@ -1593,7 +1599,7 @@ create policy "Izinkan akses baca tulis publik"
             const settingsData = { schoolName, academicYear, period, quota, baseFee, announcement, documents: docs };
             DB.saveSettings(settingsData);
             
-            if(typeof window.supabaseUpsertGeneric === 'function') window.supabaseUpsertGeneric('ppdb_settings', settingsData);
+            if(typeof window.supabaseUpsertSettings === 'function') window.supabaseUpsertSettings(settingsData);
 
             addLog(`Memperbarui pengaturan sistem dasar`);
             
@@ -1903,47 +1909,53 @@ create policy "Izinkan akses baca tulis publik"
         // Initialize Supabase
         const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        // [OPSI 2] FUNGSI KHUSUS SISWA (Satu siswa = Satu Baris di Database)
+        // [OPSI 3] TABEL TERPISAH: FUNGSI KHUSUS SISWA
         window.supabaseUpsertStudent = async function(student) {
             if (!navigator.onLine) return;
             try {
-                await supabase.from('spmb_data').upsert({ id: 'student_' + student.id, payload: student });
+                await supabase.from('ppdb_students').upsert({ id: student.id, payload: student });
             } catch (error) { console.error("[Supabase] Gagal menyimpan siswa:", error); }
         };
 
         window.supabaseDeleteStudent = async function(studentId) {
             if (!navigator.onLine) return;
             try {
-                await supabase.from('spmb_data').delete().eq('id', 'student_' + studentId);
+                await supabase.from('ppdb_students').delete().eq('id', studentId);
             } catch (error) { console.error("[Supabase] Gagal menghapus siswa:", error); }
         };
 
-        // [OPSI 2] FUNGSI KHUSUS LOG
+        // TABEL TERPISAH: FUNGSI KHUSUS LOG
         window.supabaseAddLog = async function(log) {
             if (!navigator.onLine) return;
             try {
-                await supabase.from('spmb_data').upsert({ id: log.id, payload: log });
+                await supabase.from('ppdb_logs').upsert({ id: log.id, payload: log, created_at: log.date });
             } catch (error) { console.error("[Supabase] Gagal menyimpan log:", error); }
         };
 
-        // FUNGSI UMUM (Untuk Pengaturan dan User Admin)
-        window.supabaseUpsertGeneric = async function(key, data) {
+        // TABEL TERPISAH: PENGATURAN & PENGGUNA
+        window.supabaseUpsertSettings = async function(data) {
             if (!navigator.onLine) return;
             try {
-                await supabase.from('spmb_data').upsert({ id: key, payload: data });
-            } catch (error) { console.error("[Supabase] Gagal sinkronisasi umum:", error); }
+                await supabase.from('ppdb_settings').upsert({ id: 'current', payload: data });
+            } catch (error) { console.error("[Supabase] Gagal sinkronisasi pengaturan:", error); }
         };
 
+        window.supabaseUpsertUsers = async function(data) {
+            if (!navigator.onLine) return;
+            try {
+                await supabase.from('ppdb_users').upsert({ id: 'current', payload: data });
+            } catch (error) { console.error("[Supabase] Gagal sinkronisasi pengguna:", error); }
+        };
 
-        // FUNGSI PULL UTAMA (Mengambil dan menyatukan kembali data dari baris terpisah)
+        // FUNGSI PULL UTAMA (Tarik data serentak dari 4 tabel)
         window.supabasePull = async function() {
             if (!navigator.onLine) return;
             try {
-                // Ping & Cek Tabel
-                const { error: pingError } = await supabase.from('spmb_data').select('id').limit(1);
+                // Ping & Cek salah satu tabel baru (ppdb_settings)
+                const { error: pingError } = await supabase.from('ppdb_settings').select('id').limit(1);
                 
                 if (pingError) {
-                    if (pingError.message && pingError.message.includes("Could not find the table")) {
+                    if (pingError.message && (pingError.message.includes("does not exist") || pingError.message.includes("Could not find the table"))) {
                         document.getElementById('modal-setup-db').classList.remove('hidden');
                         if (typeof setIndicator === 'function') setIndicator('offline');
                         return;
@@ -1953,72 +1965,58 @@ create policy "Izinkan akses baca tulis publik"
                 
                 if (typeof setIndicator === 'function') setIndicator('online');
 
-                // Tarik SEMUA data di tabel secara bersamaan
-                const { data, error } = await supabase.from('spmb_data').select('id, payload');
-                if (error) throw error;
+                // Tarik SEMUA data dari masing-masing tabel secara serentak / paralel
+                const [resStudents, resLogs, resSettings, resUsers] = await Promise.all([
+                    supabase.from('ppdb_students').select('payload'),
+                    supabase.from('ppdb_logs').select('payload').order('created_at', { ascending: false }).limit(150),
+                    supabase.from('ppdb_settings').select('payload').eq('id', 'current').maybeSingle(),
+                    supabase.from('ppdb_users').select('payload').eq('id', 'current').maybeSingle()
+                ]);
 
-                if (data) {
-                    let cloudStudents = [];
-                    let cloudLogs = [];
-                    let cloudSettings = null;
-                    let cloudUsers = null;
+                if (resStudents.error) throw resStudents.error;
 
-                    // Murni memilah baris terpisah (Abaikan koper lama ppdb_students agar tidak ada ghost)
-                    data.forEach(row => {
-                        if (row.id.startsWith('student_')) {
-                            cloudStudents.push(row.payload);
-                        } else if (row.id.startsWith('log_')) {
-                            cloudLogs.push(row.payload);
-                        } else if (row.id === 'ppdb_settings') {
-                            cloudSettings = row.payload;
-                        } else if (row.id === 'ppdb_users') {
-                            cloudUsers = row.payload;
-                        }
-                    });
+                let cloudStudents = resStudents.data ? resStudents.data.map(r => r.payload) : [];
+                let cloudLogs = resLogs.data ? resLogs.data.map(r => r.payload) : [];
+                let cloudSettings = resSettings.data ? resSettings.data.payload : null;
+                let cloudUsers = resUsers.data ? resUsers.data.payload : null;
 
-                    // Urutkan student (Paling lama di awal) agar sinkronisasi array stabil 
-                    cloudStudents.sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
-                    // Urutkan log (Paling baru di awal)
-                    cloudLogs.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+                // Urutkan student (Paling lama di awal) agar sinkronisasi array stabil 
+                cloudStudents.sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
 
-                    let isUpdated = false;
+                let isUpdated = false;
 
-                    // Bandingkan & Timpa ke Local Storage
-                    const localStudents = localStorage.getItem('ppdb_students') || "[]";
-                    if (JSON.stringify(cloudStudents) !== localStudents) {
-                        localStorage.setItem('ppdb_students', JSON.stringify(cloudStudents));
-                        isUpdated = true;
+                // Bandingkan & Timpa ke Local Storage
+                const localStudents = localStorage.getItem('ppdb_students') || "[]";
+                if (JSON.stringify(cloudStudents) !== localStudents) {
+                    localStorage.setItem('ppdb_students', JSON.stringify(cloudStudents));
+                    isUpdated = true;
+                }
+
+                if (cloudSettings && JSON.stringify(cloudSettings) !== localStorage.getItem('ppdb_settings')) {
+                    localStorage.setItem('ppdb_settings', JSON.stringify(cloudSettings));
+                    isUpdated = true;
+                }
+                
+                if (cloudUsers && JSON.stringify(cloudUsers) !== localStorage.getItem('ppdb_users')) {
+                    localStorage.setItem('ppdb_users', JSON.stringify(cloudUsers));
+                    isUpdated = true;
+                }
+
+                if (cloudLogs.length > 0 && JSON.stringify(cloudLogs) !== localStorage.getItem('ppdb_logs')) {
+                    localStorage.setItem('ppdb_logs', JSON.stringify(cloudLogs));
+                    isUpdated = true;
+                }
+
+                // Jika ada data yang berubah, Refresh UI di layar seketika
+                if (isUpdated) {
+                    console.log("[Supabase] Data terbaru ditarik dari tabel terpisah.");
+                    if(typeof updateAppInfo === 'function') updateAppInfo();
+                    if(typeof updateQuotaDisplay === 'function') updateQuotaDisplay();
+                    if(typeof renderAdminTable === 'function' && document.getElementById('page-admin').classList.contains('active')) {
+                        renderAdminTable();
                     }
-
-                    const localSettings = localStorage.getItem('ppdb_settings');
-                    if (cloudSettings && JSON.stringify(cloudSettings) !== localSettings) {
-                        localStorage.setItem('ppdb_settings', JSON.stringify(cloudSettings));
-                        isUpdated = true;
-                    }
-                    
-                    const localUsers = localStorage.getItem('ppdb_users');
-                    if (cloudUsers && JSON.stringify(cloudUsers) !== localUsers) {
-                        localStorage.setItem('ppdb_users', JSON.stringify(cloudUsers));
-                        isUpdated = true;
-                    }
-
-                    const localLogs = localStorage.getItem('ppdb_logs');
-                    if (cloudLogs.length > 0 && JSON.stringify(cloudLogs.slice(0, 150)) !== localLogs) {
-                        localStorage.setItem('ppdb_logs', JSON.stringify(cloudLogs.slice(0, 150)));
-                        isUpdated = true;
-                    }
-
-                    // Jika ada data yang berubah, Refresh UI di layar seketika
-                    if (isUpdated) {
-                        console.log("[Supabase] Data terbaru ditarik dan disinkronkan.");
-                        if(typeof updateAppInfo === 'function') updateAppInfo();
-                        if(typeof updateQuotaDisplay === 'function') updateQuotaDisplay();
-                        if(typeof renderAdminTable === 'function' && document.getElementById('page-admin').classList.contains('active')) {
-                            renderAdminTable();
-                        }
-                        if(typeof renderLogs === 'function' && document.getElementById('admin-sec-logs') && !document.getElementById('admin-sec-logs').classList.contains('hidden')) {
-                            renderLogs();
-                        }
+                    if(typeof renderLogs === 'function' && document.getElementById('admin-sec-logs') && !document.getElementById('admin-sec-logs').classList.contains('hidden')) {
+                        renderLogs();
                     }
                 }
             } catch (error) {
