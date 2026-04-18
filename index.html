@@ -1953,7 +1953,7 @@ create policy "Izinkan akses baca tulis publik"
                 
                 if (typeof setIndicator === 'function') setIndicator('online');
 
-                // Tarik SEMUA data di tabel secara bersamaan (Sangat efisien)
+                // Tarik SEMUA data di tabel secara bersamaan
                 const { data, error } = await supabase.from('spmb_data').select('id, payload');
                 if (error) throw error;
 
@@ -1963,18 +1963,23 @@ create policy "Izinkan akses baca tulis publik"
                     let cloudSettings = null;
                     let cloudUsers = null;
 
-                    // KUNCI PERBAIKAN: MURNI 100% READ-ONLY. 
-                    // Kode migrasi/auto-push lama saat halaman dimuat telah dihancurkan total di sini.
-                    // Memilah data dari ratusan baris Supabase ke masing-masing kategori
+                    // Murni memilah baris terpisah (Abaikan koper lama ppdb_students agar tidak ada ghost)
                     data.forEach(row => {
-                        if (row.id.startsWith('student_')) cloudStudents.push(row.payload);
-                        else if (row.id.startsWith('log_')) cloudLogs.push(row.payload);
-                        else if (row.id === 'ppdb_settings') cloudSettings = row.payload;
-                        else if (row.id === 'ppdb_users') cloudUsers = row.payload;
+                        if (row.id.startsWith('student_')) {
+                            cloudStudents.push(row.payload);
+                        } else if (row.id.startsWith('log_')) {
+                            cloudLogs.push(row.payload);
+                        } else if (row.id === 'ppdb_settings') {
+                            cloudSettings = row.payload;
+                        } else if (row.id === 'ppdb_users') {
+                            cloudUsers = row.payload;
+                        }
                     });
 
-                    // Urutkan Log berdasarkan tanggal terbaru
-                    cloudLogs.sort((a, b) => new Date(b.date) - new Date(a.date));
+                    // Urutkan student (Paling lama di awal) agar sinkronisasi array stabil 
+                    cloudStudents.sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
+                    // Urutkan log (Paling baru di awal)
+                    cloudLogs.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 
                     let isUpdated = false;
 
@@ -1985,24 +1990,27 @@ create policy "Izinkan akses baca tulis publik"
                         isUpdated = true;
                     }
 
-                    if (cloudSettings && JSON.stringify(cloudSettings) !== localStorage.getItem('ppdb_settings')) {
+                    const localSettings = localStorage.getItem('ppdb_settings');
+                    if (cloudSettings && JSON.stringify(cloudSettings) !== localSettings) {
                         localStorage.setItem('ppdb_settings', JSON.stringify(cloudSettings));
                         isUpdated = true;
                     }
                     
-                    if (cloudUsers && JSON.stringify(cloudUsers) !== localStorage.getItem('ppdb_users')) {
+                    const localUsers = localStorage.getItem('ppdb_users');
+                    if (cloudUsers && JSON.stringify(cloudUsers) !== localUsers) {
                         localStorage.setItem('ppdb_users', JSON.stringify(cloudUsers));
                         isUpdated = true;
                     }
 
-                    if (cloudLogs.length > 0 && JSON.stringify(cloudLogs.slice(0, 150)) !== localStorage.getItem('ppdb_logs')) {
+                    const localLogs = localStorage.getItem('ppdb_logs');
+                    if (cloudLogs.length > 0 && JSON.stringify(cloudLogs.slice(0, 150)) !== localLogs) {
                         localStorage.setItem('ppdb_logs', JSON.stringify(cloudLogs.slice(0, 150)));
                         isUpdated = true;
                     }
 
                     // Jika ada data yang berubah, Refresh UI di layar seketika
                     if (isUpdated) {
-                        console.log("[Supabase] Data terbaru ditarik dan disatukan dari cloud.");
+                        console.log("[Supabase] Data terbaru ditarik dan disinkronkan.");
                         if(typeof updateAppInfo === 'function') updateAppInfo();
                         if(typeof updateQuotaDisplay === 'function') updateQuotaDisplay();
                         if(typeof renderAdminTable === 'function' && document.getElementById('page-admin').classList.contains('active')) {
@@ -2014,7 +2022,7 @@ create policy "Izinkan akses baca tulis publik"
                     }
                 }
             } catch (error) {
-                console.error("[Supabase] Gagal menarik data atau koneksi terputus:", error.message);
+                console.error("[Supabase] Gagal menarik data:", error.message);
                 if (typeof setIndicator === 'function') setIndicator('offline');
             }
         };
